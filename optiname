@@ -51,7 +51,7 @@ done
 # Funktion, um Dateinamen zu kürzen und umzubenennen
 proc_file() {
   unset cutname
-  # bash {} : Der Platzhalter {} ist hier $1
+  # Argument, was dieser Funktion übergeben wurde (Pfad und Dateiname).
   local fpath="$1"
   local new_name
   local dir=$(dirname "$fpath")
