@@ -1,0 +1,146 @@
+#!/bin/bash
+
+# Carsten Jacob (https://github.com/CarstenHa/optiname)
+
+usage() {
+cat <<EOU
+
+Skript zum rekursiven Optimieren von Datei- und Verzeichnisnamen.
+
+Syntax: $(basename $0) [-d NUM] [-f NUM] [-h] [-v]
+
+Optionen:
+
+   -d NUM
+
+	Anzahl der Zeichen in Verzeichnisnamen (Default-Wert: 64)
+
+   -f NUM
+
+	Anzahl der Zeichen in Dateinamen (Suffix nicht mitgerechnet; Default-Wert: 128)
+
+   -h
+
+	ruft diese Hilfe auf.
+
+   -v
+
+	verbose
+
+EOU
+}
+
+while getopts d:f:hv opt
+do 
+ case $opt in
+   d) dlength="$OPTARG"
+   ;;
+   f) flength="$OPTARG"
+   ;;
+   h) usage
+      exit
+   ;;
+   v) export verbosemodus="yes"
+   ;;
+ esac
+done
+
+[ -z "$(echo "$dlength" | grep -E ^[[:digit:]]+$)" ] && dlength="64"
+[ -z "$(echo "$flength" | grep -E ^[[:digit:]]+$)" ] && flength="128"
+
+# Funktion, um Dateinamen zu kürzen und umzubenennen
+proc_file() {
+  unset cutname
+  # bash {} : Der Platzhalter {} ist hier $1
+  local fpath="$1"
+  local new_name
+  local dir=$(dirname "$fpath")
+  local filename=$(basename "$fpath")
+  if [ "$dirproc" == "yes" ]; then 
+   local base="${filename}"
+   local fsuffix=""
+  elif [ "$dirproc" == "no" ]; then 
+   local base="${filename%.*}"
+   local fsuffix="${filename##*.}"
+   # Eventuelle zusammengesetzte Dateiendung wird ermittelt.
+   if [[ "$base" == *.* ]]; then
+    local extsuffix="${base##*.}"
+    if [[ "$extsuffix" =~ ^(tar|deb|rpm|cpio|jar|war|ear|img|vmdk|qcow2)$ ]]; then
+     fsuffix="${extsuffix}.${fsuffix}"
+     base="${base%.*}"
+    fi
+   fi
+  fi
+  local counter=1
+
+  if [ "$fsuffix" != "$filename" -a -n "$fsuffix" ]; then
+    fsuffix=".$fsuffix"
+  else
+    fsuffix=""
+  fi
+
+  # Dateiname wird optimiert.
+  base="$(echo "$base" | sed 's/\[Üü]/ue/g
+                              s/\[Ää]/ae/g
+                              s/\[Öö]/oe/g
+                              s/[[:space:]]\{1,\}/_/g
+                              # Sonderzeichen in Dateinamen werden entfernt.
+                              s/[#\/:;*?"<>|$]\{1,\}/_/g
+                              # Alle Großbuchstaben werden in Kleinbuchstaben umgewandelt.
+                              s/\(.\)/\L\1/g
+                             ')"
+
+  if [ "${#base}" -gt "$length" ]; then
+   base="${base:0:$length}"
+   cutname="yes"
+  fi
+
+  new_name="${base}${fsuffix}"
+
+  # Schleife, um einen eindeutigen Namen zu ermitteln.
+  while [ -e "$dir/$new_name" -a "$cutname" == "yes" ]; do
+    # Länge des Dateinamens wird neu berechnet.
+    seclength=$(("$length" - $((${#counter} + 1))))
+    base="${base:0:$seclength}"
+    new_name="${base}_${counter}${fsuffix}"
+    let counter++
+  done
+
+ # Hier werden die Namen ggf. geändert.
+ # Die Option -n dient zur Sicherheit, damit niemals bestehende Dateien ungewollt überschrieben werden.
+ if [ "$verbosemodus" == "yes" ]; then
+  [ "$fpath" != "$dir/$new_name" ] && mv -vn "$fpath" "$dir/$new_name" || echo "Datei     passt '${fpath}'"
+ else
+  [ "$fpath" != "$dir/$new_name" ] && mv -vn "$fpath" "$dir/$new_name"
+ fi
+}
+
+# Alle Variablen und Funtionen die für den Subprozess bash -c ... bestimmt sind, müssen exportiert werden.
+export -f proc_file
+export flength
+export dlength
+
+# Das zweite 'bash' in den find-Befehlen ist notwendig, damit die Shell die Position von {} korrekt zuordnen kann.
+# Ist nur als Platzhalter. Ohne diesen Platzhalter würde die Bash die Dateien als Parameter für die
+# Option -c interpretieren.
+
+# ** Ordner **
+echo "Ordner werden geprüft ..."
+# -mindepth 1 ist wichtig, damit . nicht ausgegeben wird.
+find . -depth -mindepth 1 -type d -exec bash -c '
+length="$dlength"
+dirproc=yes
+for filepath; do
+  proc_file "$filepath"
+done
+' bash {} +
+
+# ** Dateien **
+echo "Dateien werden geprüft ..."
+find . -type f -exec bash -c '
+length="$flength"
+dirproc=no
+for filepath; do
+  proc_file "$filepath"
+done
+' bash {} +
