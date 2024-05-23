@@ -34,8 +34,14 @@ while getopts d:f:hv opt
 do 
  case $opt in
    d) dlength="$OPTARG"
+      while [ -z "$(echo "$dlength" | grep -E ^[[:digit:]]+$)" ] || [ "$dlength" -lt 6 -o "$dlength" -gt 255 ]; do
+       read -p "Bitte eine Zahl von 6 bis 255 eingeben: " dlength
+      done
    ;;
    f) flength="$OPTARG"
+      while [ -z "$(echo "$flength" | grep -E ^[[:digit:]]+$)" ] || [ "$flength" -lt 6 -o "$flength" -gt 255 ]; do
+       read -p "Bitte eine Zahl von 6 bis 255 eingeben: " flength
+      done
    ;;
    h) usage
       exit
