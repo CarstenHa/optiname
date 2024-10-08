@@ -91,7 +91,7 @@ proc_file() {
                               s/\[Öö]/oe/g
                               s/[[:space:]]\{1,\}/_/g
                               # Sonderzeichen in Dateinamen werden entfernt.
-                              s/[#\/:;*?!•"<>|$]\{1,\}/_/g
+                              s/[#\/:;*?!•›"<>|$]\{1,\}/_/g
                               # Alle Großbuchstaben werden in Kleinbuchstaben umgewandelt.
                               s/\(.\)/\L\1/g
                               # Mögliche aufeinanderfolgende Unterstriche werden durch ein Unterstrich ersetzt.
