@@ -5,9 +5,13 @@
 usage() {
 cat <<EOU
 
-Skript zum rekursiven Optimieren von Datei- und Verzeichnisnamen.
+Skript zum (rekursiven) Optimieren von Datei- und Verzeichnisnamen.
 
-Syntax: $(basename $0) [-d NUM] [-f NUM] [-h] [-v]
+Syntax: $(basename $0) [-d NUM] [-f NUM] [-h] [-n] [-v] [FILE|DIR]
+
+Wenn ein Verzeichnis- bzw. Dateiname im letzten Argument angegeben wird, dann wird
+diese Angabe verarbeitet.
+Ansonsten werden alle Verzeichnisse/Dateien rekursiv ab PWD verarbeitet.
 
 Optionen:
 
@@ -23,6 +27,10 @@ Optionen:
 
 	ruft diese Hilfe auf.
 
+   -n
+
+	Dry-run. Zeigt die Änderungen an, ohne die Dateien/Ordner tatsächlich umzubenennen.
+
    -v
 
 	verbose
@@ -30,7 +38,7 @@ Optionen:
 EOU
 }
 
-while getopts d:f:hv opt
+while getopts d:f:hnv opt
 do 
  case $opt in
    d) dlength="$OPTARG"
@@ -46,10 +54,37 @@ do
    h) usage
       exit
    ;;
+   n) export dryrun="yes"
+      echo "***** DRY-RUN *****"
+   ;;
    v) export verbosemodus="yes"
    ;;
  esac
 done
+
+# Möglicher Ordner-/Dateiname wird auf $1 gesetzt.
+shift $(($OPTIND-1))
+# Cache aktualisieren.
+sync
+
+sedscr() {
+cat <<EOE
+s/\[Üü]/ue/g
+s/\[Ää]/ae/g
+s/\[Öö]/oe/g
+s/[[:space:]]\{1,\}/_/g
+# Öffende Klammern werden umgeschrieben.
+s/[[{]\{1,\}/(/g
+# Schließende Klammern werden umgeschrieben.
+s/[]}]\{1,\}/)/g
+# Sonderzeichen in Dateinamen werden entfernt.
+s/[#\/:;*?!•›"<>|$]\{1,\}/_/g
+# Alle Großbuchstaben werden in Kleinbuchstaben umgewandelt.
+s/\(.\)/\L\1/g
+# Mögliche aufeinanderfolgende Unterstriche werden durch ein Unterstrich ersetzt.
+s/[_]\{2,\}/_/g
+EOE
+}
 
 [ -z "$(echo "$dlength" | grep -E ^[[:digit:]]+$)" ] && dlength="64"
 [ -z "$(echo "$flength" | grep -E ^[[:digit:]]+$)" ] && flength="128"
@@ -57,12 +92,14 @@ done
 # Funktion, um Dateinamen zu kürzen und umzubenennen
 proc_file() {
   unset cutname
+
   # Argument, was dieser Funktion übergeben wurde (Pfad und Dateiname).
   local fpath="$1"
   local new_name
   local dir=$(dirname "$fpath")
   local filename=$(basename "$fpath")
-  if [ "$dirproc" == "yes" ]; then 
+
+  if [ "$dirproc" == "yes" ]; then
    local base="${filename}"
    local fsuffix=""
   elif [ "$dirproc" == "no" ]; then 
@@ -85,18 +122,8 @@ proc_file() {
     fsuffix=""
   fi
 
-  # Dateiname wird optimiert.
-  base="$(echo "$base" | sed 's/\[Üü]/ue/g
-                              s/\[Ää]/ae/g
-                              s/\[Öö]/oe/g
-                              s/[[:space:]]\{1,\}/_/g
-                              # Sonderzeichen in Dateinamen werden entfernt.
-                              s/[#\/:;*?!•›"<>|$]\{1,\}/_/g
-                              # Alle Großbuchstaben werden in Kleinbuchstaben umgewandelt.
-                              s/\(.\)/\L\1/g
-                              # Mögliche aufeinanderfolgende Unterstriche werden durch ein Unterstrich ersetzt.
-                              s/[_]\{2,\}/_/g
-                             ')"
+  # ** Name wird optimiert **
+  base="$(echo "$base" | sed -f <(sedscr))"
 
   if [ "${#base}" -gt "$length" ]; then
    base="${base:0:$length}"
@@ -105,50 +132,127 @@ proc_file() {
 
   new_name="${base}${fsuffix}"
 
+  # ** Diese while-Schleife ist ähnlich wie while-Schleife unten. Mögliche Änderungen abgleichen **
   # Schleife, um einen eindeutigen Namen zu ermitteln.
   while [ -e "$dir/$new_name" -a "$cutname" == "yes" ]; do
     # Länge des Dateinamens wird neu berechnet.
     seclength=$(("$length" - $((${#counter} + 1))))
     base="${base:0:$seclength}"
-    new_name="${base}_${counter}${fsuffix}"
+    # Wenn base mit einem _ endet, wird eine führende 0 hinzugefügt.
+    if [ -n "$(echo "$base" | grep '_$')" ]; then
+     new_name="${base}0${counter}${fsuffix}"
+    else
+     new_name="${base}_${counter}${fsuffix}"
+    fi
     let counter++
   done
 
  # Hier werden die Namen ggf. geändert.
- # Die Option -n dient zur Sicherheit, damit niemals bestehende Dateien ungewollt überschrieben werden.
- if [ "$verbosemodus" == "yes" ]; then
-  [ "$fpath" != "$dir/$new_name" ] && mv -vn "$fpath" "$dir/$new_name" || echo "Datei     passt '${fpath}'"
+ # Die Option -n (mv) dient zur Sicherheit, damit niemals bestehende Dateien ungewollt überschrieben werden.
+
+ if [ "$fpath" != "$dir/$new_name" ]; then
+
+  if [ "$dryrun" == "yes" ]; then
+
+   # ./ am Anfang müssen hier vorübergehend entfernt werden.
+   tmpdirname="$(echo "${dir}" | sed 's/^[./]*//' | sed -f <(sedscr))"
+   tmpnew_name="$(echo "${new_name}" | sed 's/^[./]*//' | sed -f <(sedscr))"
+   [ -n  "${tmpdirname}" ] && tmpdirname=".../"
+
+   # ** Diese while-Schleife ist ähnlich wie while-Schleife oben. Mögliche Änderungen abgleichen **
+   # Wenn (tmp-)Dateinamen bereits vorhanden sind, durchnummerieren.
+   # awk-Befehl, damit die Zeichen der kompletten Zeile als normale Zeichen interpretiert werden.
+   while [ "$cutname" == "yes" ] && [ -e  "$dir/$new_name" -o -n "$(echo "$tmplist" | awk '$0 == "'"${dir}/${tmpnew_name}"'"')" ]; do
+    # Länge des Dateinamens wird neu berechnet.
+    seclength=$(("$length" - $((${#counter} + 1))))
+    base="${base:0:$seclength}"
+    # Wenn base mit einem _ endet, wird eine führende 0 hinzugefügt.
+    if [ -n "$(echo "$base" | grep '_$')" ]; then
+     tmpnew_name="${base}0${counter}${fsuffix}"
+    else
+     tmpnew_name="${base}_${counter}${fsuffix}"
+    fi
+    let counter++
+   done
+
+   printf "\e[31mDatei wird umbenannt\e[0m "
+   echo "'$fpath' -> './${tmpdirname}${tmpnew_name}'"
+   # Liste der mit dry-run "geänderten" Dateien/Ordner.
+   tmplist+="${dir}/${tmpnew_name}"$'\n'
+   # Zum debuggen
+   #echo "$tmplist"
+
+  else
+
+   mv -vn "$fpath" "$dir/$new_name"
+
+  fi
+
  else
-  [ "$fpath" != "$dir/$new_name" ] && mv -vn "$fpath" "$dir/$new_name"
+
+  if [ "$verbosemodus" == "yes" ]; then
+
+   if [ "$dryrun" == "yes" ]; then
+    printf "\e[32mDatei          passt\e[0m "
+    echo "'${fpath}'"
+   else
+    echo "Datei     passt '${fpath}'"
+   fi
+
+  fi
+
  fi
 }
 
-# Alle Variablen und Funtionen die für den Subprozess bash -c ... bestimmt sind, müssen exportiert werden.
-export -f proc_file
-export flength
-export dlength
+if [ -n "$1" ]; then
 
-# Das zweite 'bash' in den find-Befehlen ist notwendig, damit die Shell die Position von {} korrekt zuordnen kann.
-# Ist nur als Platzhalter. Ohne diesen Platzhalter würde die Bash die Dateien als Parameter für die
-# Option -c interpretieren.
+ singlename="$1"
 
-# ** Ordner **
-echo "Ordner werden geprüft ..."
-# -mindepth 1 ist wichtig, damit . nicht ausgegeben wird.
-find . -depth -mindepth 1 -type d -exec bash -c '
-length="$dlength"
-dirproc=yes
-for filepath; do
-  proc_file "$filepath"
-done
-' bash {} +
+ if [ -f "$singlename" ]; then
+  echo "Datei wird geprüft ..."
+  length="$flength"
+  dirproc=no
+  proc_file "$singlename"
+ elif [ -d "$singlename" ]; then
+  echo "Ordner wird geprüft ..."
+  length="$dlength"
+  dirproc=yes
+  proc_file "$singlename"
+ else
+  echo "Kein(e) Datei/Ordner mit dem angegebenen Namen gefunden."
+ fi
 
-# ** Dateien **
-echo "Dateien werden geprüft ..."
-find . -type f -exec bash -c '
-length="$flength"
-dirproc=no
-for filepath; do
-  proc_file "$filepath"
-done
-' bash {} +
+else
+
+ # Alle Variablen und Funtionen die für den Subprozess bash -c ... bestimmt sind, müssen exportiert werden.
+ export -f sedscr
+ export -f proc_file
+ export flength
+ export dlength
+
+ # Das zweite 'bash' in den find-Befehlen ist notwendig, damit die Shell die Position von {} korrekt zuordnen kann.
+ # Ist nur als Platzhalter. Ohne diesen Platzhalter würde die Bash die Dateien als Parameter für die
+ # Option -c interpretieren.
+
+ # ** Ordner **
+ echo "1. Ordner werden geprüft ..."
+ # -mindepth 1 ist wichtig, damit . nicht ausgegeben wird.
+ find . -depth -mindepth 1 -type d -exec bash -c '
+ length="$dlength"
+ dirproc=yes
+ for filepath; do
+   proc_file "$filepath"
+ done
+ ' bash {} +
+
+ # ** Dateien **
+ echo -e "\n2. Dateien werden geprüft ..."
+ find $findopt -type f -exec bash -c '
+ length="$flength"
+ dirproc=no
+ for filepath; do
+   proc_file "$filepath"
+ done
+ ' bash {} +
+
+fi
