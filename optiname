@@ -7,10 +7,13 @@ cat <<EOU
 
 Skript zum (rekursiven) Optimieren von Datei- und Verzeichnisnamen.
 
-Syntax: $(basename $0) [-d NUM] [-f NUM] [-h] [-n] [-v] [FILE|DIR]
+Syntax: $(basename $0) [-d NUM] [-f NUM] [-h] [-n] [-v] [FILE]
 
 Wenn ein Verzeichnis- bzw. Dateiname im letzten Argument angegeben wird, dann wird
-diese Angabe verarbeitet.
+diese Angabe verarbeitet. Globbing wird unterstützt. Beispiel:
+$(basename $0) -n -f 10 -d 6 ordner/file*
+Listet alle Ordner und Dateien auf, die im 'ordner' mit 'file' beginnen, und zeigt die
+voraussichtlichen Veränderungen an.
 Ansonsten werden alle Verzeichnisse/Dateien rekursiv ab PWD verarbeitet.
 
 Optionen:
@@ -29,11 +32,12 @@ Optionen:
 
    -n
 
-	Dry-run. Zeigt die Änderungen an, ohne die Dateien/Ordner tatsächlich umzubenennen.
+	dry-run. Zeigt die Änderungen an, ohne die Dateien/Ordner tatsächlich umzubenennen.
 
    -v
 
-	verbose
+	verbose. Zeigt neben den Veränderungen auch die Dateien/Ordner an, die bereits einen
+	korrekten Namen haben.
 
 EOU
 }
@@ -64,8 +68,6 @@ done
 
 # Möglicher Ordner-/Dateiname wird auf $1 gesetzt.
 shift $(($OPTIND-1))
-# Cache aktualisieren.
-sync
 
 sedscr() {
 cat <<EOE
@@ -175,7 +177,7 @@ proc_file() {
     let counter++
    done
 
-   printf "\e[31mDatei wird umbenannt\e[0m "
+   printf "\e[31mwird umbenannt\e[0m "
    echo "'$fpath' -> './${tmpdirname}${tmpnew_name}'"
    # Liste der mit dry-run "geänderten" Dateien/Ordner.
    tmplist+="${dir}/${tmpnew_name}"$'\n'
@@ -193,7 +195,7 @@ proc_file() {
   if [ "$verbosemodus" == "yes" ]; then
 
    if [ "$dryrun" == "yes" ]; then
-    printf "\e[32mDatei          passt\e[0m "
+    printf "\e[32m         passt\e[0m "
     echo "'${fpath}'"
    else
     echo "Datei     passt '${fpath}'"
@@ -206,21 +208,27 @@ proc_file() {
 
 if [ -n "$1" ]; then
 
- singlename="$1"
-
- if [ -f "$singlename" ]; then
-  echo "Datei wird geprüft ..."
-  length="$flength"
-  dirproc=no
-  proc_file "$singlename"
- elif [ -d "$singlename" ]; then
-  echo "Ordner wird geprüft ..."
-  length="$dlength"
-  dirproc=yes
-  proc_file "$singlename"
- else
-  echo "Kein(e) Datei/Ordner mit dem angegebenen Namen gefunden."
- fi
+ OLDIFS="$IFS"
+ IFS=$'\n'
+ for singlename in $@; do
+  if [ -d "$singlename" ]; then
+   # Rücklauf stellt sicher, wenn keine Option -v angegeben wurde,
+   # das Ausgabe vom Zeilenanfang startet (gilt auch für Dateien).
+   printf "\rOrdner "
+   length="$dlength"
+   dirproc=yes
+   proc_file "$singlename"
+  elif [ -f "$singlename" ]; then
+   printf "\rDatei  "
+   length="$flength"
+   dirproc=no
+   proc_file "$singlename"
+  else
+   echo "Kein(e) Datei/Ordner mit dem angegebenen Namen gefunden."
+  fi
+ done
+ printf '\r'
+ IFS="$OLDIFS"
 
 else
 
