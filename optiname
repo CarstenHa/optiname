@@ -71,9 +71,9 @@ shift $(($OPTIND-1))
 
 sedscr() {
 cat <<EOE
-s/\[Üü]/ue/g
-s/\[Ää]/ae/g
-s/\[Öö]/oe/g
+s/[Üü]/ue/g
+s/[Ää]/ae/g
+s/[Öö]/oe/g
 s/[[:space:]]\{1,\}/_/g
 # Öffende Klammern werden umgeschrieben.
 s/[[{]\{1,\}/(/g
