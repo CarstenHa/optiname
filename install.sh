@@ -58,10 +58,10 @@ while true
   do
    read -p "Soll eine [s]ymbolische Verknüpfung auf ${progname} angelegt werden oder [k]opiert werden? " symcopy
     case "$symcopy" in
-      s|S) ln -vis "${PWD}/optiname" "${installdir}/${progname}"
+      s|S) ln -vis "${PWD}/${progname}" "${installdir}/${progname}"
           break
           ;;
-      k|K) cp -vi "${PWD}/optiname" "${installdir}/"
+      k|K) cp -vi "${PWD}/${progname}" "${installdir}/"
           break
           ;;
       *) echo "Fehlerhafte Eingabe!"
